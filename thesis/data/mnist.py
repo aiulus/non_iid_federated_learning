@@ -189,24 +189,21 @@ def visualize(path, epoch, y_train, subset_ID_map, mode_plot, mode_partitioning,
     if mode_plot == "heatmap":
         ax = sns.heatmap(pd.DataFrame(values_normalized), vmin=0, vmax=1, cmap=sns.cm.rocket_r)
         ax.set(xlabel="Labels", ylabel="Clients", title=main_title)
+        plt.show()
     elif mode_plot == "histogram":
         dim_x = 2
         dim_y = 5
         fig, axes = plt.subplots(dim_y, dim_x)
         for j in range(len(values)):
             plt.figure(figsize=(5, 3), dpi=300)
-
             plt.hist(values[j], [(i - 0.5) / 2 for i in range(20)], label="Sampled dist")
-
             x = np.arange(-0.5, 9.5, 0.1)
             plt.xticks([i for i in range(10)])
             plt.xlabel("Label")
             plt.xlim([-1, 10])
             plt.ylabel("Entries")
-
             plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-
-     plt.show()
+            plt.show()
 
 def tensor_to_csv(x_train, y_train, subset_map, epoch_num):
     for key in subset_map:
