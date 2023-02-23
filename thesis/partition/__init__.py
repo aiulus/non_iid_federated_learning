@@ -1,1 +1,1 @@
-__all__ = ["gaussian"]
+__all__ = ["gaussian","dirichlet"]
