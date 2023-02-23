@@ -204,4 +204,7 @@ def partition_hetero_gaussian(dir, n_clients, alpha, bootstrap=False):
 def save_to_csv(dir, subset_map, epoch):
     x_train, y_train, x_test, y_test = get_data(dir)
     for key in subset_map:
-        subset = [x for index, x in enumerate(x_train) if index in subset_map[key]]
+        subset_data = pd.DataFrame([x for index, x in enumerate(x_train.tolist()) if index in subset_map[key]])
+        subset_labels = [x for index, x in enumerate(y_train.tolist()) if index in subset_map[key]]
+        subset_data['label'] = subset_labels
+        subset_data.to_csv(f'epoch_{epoch}_subset_{key + 1}.csv', index=False)

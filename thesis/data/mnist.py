@@ -7,6 +7,7 @@ import logging
 import math
 import random
 from sklearn.mixture import GaussianMixture
+import pandas as pd
 
 
 def get_data(path=None):
@@ -154,8 +155,11 @@ def partition(epoch, dir, logdir, type, n_clients, alpha, bootstrap=False, save=
         gmm = GaussianMixture(n_components=n_clients, covariance_type='full')
 
     def save_to_csv(subset_map, epoch):
-        for client, ID_list in subset_map:
-            data = [x for index, x in enumerate(x_train) if index in ID_list]
+        for key in subset_map:
+            subset_data = pd.DataFrame([x for index, x in enumerate(x_train.tolist()) if index in subset_map[key]])
+            subset_labels = [x for index, x in enumerate(y_train.tolist()) if index in subset_map[key]]
+            subset_data['label'] = subset_labels
+            subset_data.to_csv(f'epoch_{epoch}_subset_{key + 1}.csv', index=False)
 
     if save:
         save_to_csv(subset_ID_map, epoch)
