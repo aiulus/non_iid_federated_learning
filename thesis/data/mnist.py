@@ -8,7 +8,8 @@ import math
 import random
 from sklearn.mixture import GaussianMixture
 import pandas as pd
-
+from matplotlib import pyplot as plt
+import seaborn as sns
 
 def get_data(path=None):
     mnist_train: datasets = datasets.MNIST(root=path, train=True, download=True, transform=None)
@@ -45,7 +46,7 @@ def log_class_counts(y_train, subset_ID_map, log=False):
     return cls_counts
 
 
-def partition(epoch, path, logpath, mode, n_clients, alpha, bootstrap=False, save=False):
+def partition(epoch, path, logpath, mode, n_clients, alpha, bootstrap=False):
     x_train, y_train, x_test, y_test = get_data(path)
     n_train = x_train.shape[0]
 
@@ -155,24 +156,15 @@ def partition(epoch, path, logpath, mode, n_clients, alpha, bootstrap=False, sav
     elif mode == "hetero-bayesian":
         gmm = GaussianMixture(n_components=n_clients, covariance_type='full')
 
-    def save_to_csv(subset_map, epoch_num):
-        for key in subset_map:
-            subset_data = pd.DataFrame([x for index, x in enumerate(x_train.tolist()) if index in subset_map[key]])
-            subset_labels = [x for index, x in enumerate(y_train.tolist()) if index in subset_map[key]]
-            subset_data['label'] = subset_labels
-            subset_data.to_csv(f'epoch_{epoch_num}_subset_{key + 1}.csv', index=False)
-
-    if save:
-        save_to_csv(subset_ID_map, epoch)
-
     cls_counts = log_class_counts(y_train, subset_ID_map, logpath)
 
     return x_train, y_train, x_test, y_test, subset_ID_map, logpath
 
+# TODO: implement method for saving images
 def visualize(path, epoch, y_train, subset_ID_map, mode_plot, mode_partitioning, alpha, save=False):
     counts = log_class_counts(y_train, subset_ID_map)
 
-    values = np.array([np.array([counts.get(k).get(key) for key in counts.get(k)]) for k in counts])
+    values = [np.array([counts.get(k).get(key) for key in counts.get(k)]) for k in counts]
     values_normalized = [values[j] / values[j].sum() for j in range(len(values))]
 
     n_clients = len(subset_ID_map)
@@ -185,12 +177,45 @@ def visualize(path, epoch, y_train, subset_ID_map, mode_plot, mode_partitioning,
     main_title = title_formats.get(mode_partitioning, "")
     main_title = main_title.format(alpha=alpha, n_clients=n_clients)
 
+    subtitle_formats = {
+        "hetero_dir": "α_{epoch}={alpha}",
+        "hetero-gaussian": "σ_{epoch}={alpha}",
+        "homo" : ""
+    }
+
+    subtitle = subtitle_formats.get(mode_partitioning, "")
+    subtitle = subtitle.format(epoch=epoch, alpha=alpha)
+
     if mode_plot == "heatmap":
+        ax = sns.heatmap(pd.DataFrame(values_normalized), vmin=0, vmax=1, cmap=sns.cm.rocket_r)
+        ax.set(xlabel="Labels", ylabel="Clients", title=main_title)
+    elif mode_plot == "histogram":
+        dim_x = 2
+        dim_y = 5
+        fig, axes = plt.subplots(dim_y, dim_x)
+        for j in range(len(values)):
+            plt.figure(figsize=(5, 3), dpi=300)
 
+            plt.hist(values[j], [(i - 0.5) / 2 for i in range(20)], label="Sampled dist")
 
+            x = np.arange(-0.5, 9.5, 0.1)
+            plt.xticks([i for i in range(10)])
+            plt.xlabel("Label")
+            plt.xlim([-1, 10])
+            plt.ylabel("Entries")
 
+            plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
+     plt.show()
 
+def tensor_to_csv(x_train, y_train, subset_map, epoch_num):
+    for key in subset_map:
+        x, y = x_train[subset_map.get(key)], y_train[subset_map.get(key)]
+        df_x = pd.DataFrame(x.tolist())
+        df_y = pd.DataFrame(y.tolist())
+        df_x['targets'] = df_y
+        df_x.rename(columns={0: 'data', "targets": "targets"})
+        df_x.to_csv(f'subsets/epoch_{epoch_num}_subset_{key + 1}.csv', index=False)
 
 
 

@@ -90,7 +90,7 @@ def partition_homo(dir, n_clients):
     return subset_ID_map
 
 
-def partition_homo_sss(dir, n_clients):
+def partition_homo_skf(dir, n_clients):
     subset_ID_map = {}
     mnist_train: datasets = datasets.MNIST(root=dir, train=True, download=True, transform=None)
     x_train, y_train = mnist_train.data, mnist_train.targets
@@ -201,10 +201,19 @@ def partition_hetero_gaussian(dir, n_clients, alpha, bootstrap=False):
 
     return subset_ID_map
 
-def save_to_csv(dir, subset_map, epoch):
-    x_train, y_train, x_test, y_test = get_data(dir)
+
+def save_to_csv(subset_map, epoch_num):
     for key in subset_map:
         subset_data = pd.DataFrame([x for index, x in enumerate(x_train.tolist()) if index in subset_map[key]])
         subset_labels = [x for index, x in enumerate(y_train.tolist()) if index in subset_map[key]]
         subset_data['label'] = subset_labels
-        subset_data.to_csv(f'epoch_{epoch}_subset_{key + 1}.csv', index=False)
+        subset_data.to_csv(f'subsets/epoch_{epoch_num}_subset_{key + 1}.csv', index=False)
+
+def tensor_to_csv(x_train, y_train, subset_map, epoch_num):
+    for key in subset_map:
+        x, y = x_train[subset_map.get(key)], y_train[subset_map.get(key)]
+        df_x = pd.DataFrame(x.tolist())
+        df_y = pd.DataFrame(y.tolist())
+        df_x['targets'] = df_y
+        df_x.rename(columns={0: 'data', "targets": "targets"})
+        df_x.to_csv(f'subsets/epoch_{epoch_num}_subset_{key + 1}.csv', index=False)
