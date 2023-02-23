@@ -31,7 +31,7 @@ def parse_class_distr(data):
             class_ID_map[cls].append(ID)
 
 
-def log_class_counts(y_train, subset_ID_map, logdir):
+def log_class_counts(y_train, subset_ID_map, log=False):
     cls_counts = {}
 
     for subset_i, ID in subset_ID_map.items():
@@ -39,18 +39,19 @@ def log_class_counts(y_train, subset_ID_map, logdir):
         tmp = {unq[i]: unq_cnt[i] for i in range(len(unq))}
         cls_counts[subset_i] = tmp
 
-    logging.debug('Label distributions: %s' % str(cls_counts))
+    if log:
+        logging.debug('Label distributions: %s' % str(cls_counts))
 
     return cls_counts
 
 
-def partition(epoch, dir, logdir, type, n_clients, alpha, bootstrap=False, save=False):
-    x_train, y_train, x_test, y_test = get_data(dir)
+def partition(epoch, path, logpath, mode, n_clients, alpha, bootstrap=False, save=False):
+    x_train, y_train, x_test, y_test = get_data(path)
     n_train = x_train.shape[0]
 
     # Creates a partitioning where each subset has the same distribution of labels as the original dataset
     # via stratified splitting and stores the ID's of data points in each subset in a map.
-    if type == "homo":
+    if mode == "homo":
         skf = StratifiedKFold(n_splits=n_clients, shuffle=True, random_state=42)
         subset_indices = []
 
@@ -87,7 +88,7 @@ def partition(epoch, dir, logdir, type, n_clients, alpha, bootstrap=False, save=
             np.random.shuffle(subset_ID_list[j])
             subset_ID_map[j] = subset_ID_list[j]
 
-    elif type == "hetero-gaussian":
+    elif mode == "hetero-gaussian":
         min_size = 0
         # classes
         K = 10
@@ -95,8 +96,8 @@ def partition(epoch, dir, logdir, type, n_clients, alpha, bootstrap=False, save=
         N = y_train.shape[0]
         subset_ID_map = {}
 
-        def gaussian_pdf(x, mu, sig):
-            return np.exp(- np.power(x - mu, 2.) / (2 * np.power(sig, 2.))) / (sig * math.sqrt(2 * math.pi))
+        def gaussian_pdf(x, mean, variance):
+            return np.exp(- np.power(x - mean, 2.) / (2 * np.power(variance, 2.))) / (variance * math.sqrt(2 * math.pi))
 
         labels = list(set(y_train.tolist()))
         mu = 5
@@ -151,28 +152,40 @@ def partition(epoch, dir, logdir, type, n_clients, alpha, bootstrap=False, save=
         subset_ID_map = {i: subset_ID_list[i] for i in range(n_clients)}
 
     # TODO
-    elif type == "hetero-bayesian":
+    elif mode == "hetero-bayesian":
         gmm = GaussianMixture(n_components=n_clients, covariance_type='full')
 
-    def save_to_csv(subset_map, epoch):
+    def save_to_csv(subset_map, epoch_num):
         for key in subset_map:
             subset_data = pd.DataFrame([x for index, x in enumerate(x_train.tolist()) if index in subset_map[key]])
             subset_labels = [x for index, x in enumerate(y_train.tolist()) if index in subset_map[key]]
             subset_data['label'] = subset_labels
-            subset_data.to_csv(f'epoch_{epoch}_subset_{key + 1}.csv', index=False)
+            subset_data.to_csv(f'epoch_{epoch_num}_subset_{key + 1}.csv', index=False)
 
     if save:
         save_to_csv(subset_ID_map, epoch)
 
-    cls_counts = log_class_counts(y_train, subset_ID_map, logdir)
+    cls_counts = log_class_counts(y_train, subset_ID_map, logpath)
 
-    return x_train, y_train, x_test, y_test, subset_ID_map, logdir
+    return x_train, y_train, x_test, y_test, subset_ID_map, logpath
 
+def visualize(path, epoch, y_train, subset_ID_map, mode_plot, mode_partitioning, alpha, save=False):
+    counts = log_class_counts(y_train, subset_ID_map)
 
+    values = np.array([np.array([counts.get(k).get(key) for key in counts.get(k)]) for k in counts])
+    values_normalized = [values[j] / values[j].sum() for j in range(len(values))]
 
+    n_clients = len(subset_ID_map)
 
+    title_formats = {
+        "hetero-dir": "A distribution-based heterogeneous partitioning X~Dir({alpha}) with {n_clients} subsets",
+        "hetero-gaussian": "A distribution-based Gaussian heterogeneous partitioning σ={alpha} with {n_clients} subsets",
+        "homo": "A homogeneous partitioning with {n_clients} subsets",
+    }
+    main_title = title_formats.get(mode_partitioning, "")
+    main_title = main_title.format(alpha=alpha, n_clients=n_clients)
 
-
+    if mode_plot == "heatmap":
 
 
 
