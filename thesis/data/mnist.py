@@ -10,6 +10,8 @@ from sklearn.mixture import GaussianMixture
 import pandas as pd
 from matplotlib import pyplot as plt
 import seaborn as sns
+from scipy.stats import kstest, anderson_ksamp, cumfreq, ks_2samp, cramervonmises, chisquare
+from statsmodels.distributions.empirical_distribution import ECDF
 
 def get_data(path=None):
     mnist_train: datasets = datasets.MNIST(root=path, train=True, download=True, transform=None)
@@ -45,8 +47,15 @@ def log_class_counts(y_train, subset_ID_map, log=False):
 
     return cls_counts
 
+def map_to_prob(y_train, subset_map):
+    counts = log_class_counts(y_train, subset_map)
 
-def partition(epoch, path, logpath, mode, n_clients, alpha, bootstrap=False):
+    values = [np.array([counts.get(k).get(key) for key in counts.get(k)]) for k in counts]
+    probs = [values[j] / values[j].sum() for j in range(len(values))]
+
+    return probs
+
+def partition(epoch, path, alpha, mode, n_clients, logpath=None, bootstrap=False):
     x_train, y_train, x_test, y_test = get_data(path)
     n_train = x_train.shape[0]
 
@@ -161,7 +170,7 @@ def partition(epoch, path, logpath, mode, n_clients, alpha, bootstrap=False):
     return x_train, y_train, x_test, y_test, subset_ID_map, logpath
 
 # TODO: implement method for saving images
-def visualize(path, epoch, y_train, subset_ID_map, mode_plot, mode_partitioning, alpha, save=False):
+def visualize_X(path, epoch, y_train, subset_ID_map, mode_plot, mode_partitioning, alpha, save=False):
     counts = log_class_counts(y_train, subset_ID_map)
 
     values = [np.array([counts.get(k).get(key) for key in counts.get(k)]) for k in counts]
@@ -203,7 +212,46 @@ def visualize(path, epoch, y_train, subset_ID_map, mode_plot, mode_partitioning,
             plt.xlim([-1, 10])
             plt.ylabel("Entries")
             plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-            plt.show()
+        plt.show()
+
+def visualize(X, Y, xlabels, ylabels, mode, save=False):
+    epochs = len(ylabels)
+
+    title_formats = {
+        "hetero-dir": "A distribution-based heterogeneous partitioning X~Dir({alpha}) with {n_clients} subsets",
+        "hetero-gaussian": "A distribution-based Gaussian heterogeneous partitioning σ={alpha} with {n_clients} subsets",
+        "homo": "A homogeneous partitioning with {n_clients} subsets",
+    }
+    main_title = title_formats.get(mode, "")
+    main_title = main_title.format(alpha=alpha, n_clients=n_clients)
+
+    subtitle_formats = {
+        "hetero_dir": "α_{epoch}={alpha}",
+        "hetero-gaussian": "σ_{epoch}={alpha}",
+        "homo" : ""
+    }
+
+    subtitle = subtitle_formats.get(mode, "")
+    subtitle = subtitle.format(epoch=epoch, alpha=alpha)
+
+    if mode_plot == "heatmap":
+        ax = sns.heatmap(pd.DataFrame(values_normalized), vmin=0, vmax=1, cmap=sns.cm.rocket_r)
+        ax.set(xlabel="Labels", ylabel="Clients", title=main_title)
+        plt.show()
+    elif mode_plot == "histogram":
+        dim_x = 2
+        dim_y = 5
+        fig, axes = plt.subplots(dim_y, dim_x)
+        for j in range(len(values)):
+            plt.figure(figsize=(5, 3), dpi=300)
+            plt.hist(values[j], [(i - 0.5) / 2 for i in range(20)], label="Sampled dist")
+            x = np.arange(-0.5, 9.5, 0.1)
+            plt.xticks([i for i in range(10)])
+            plt.xlabel("Label")
+            plt.xlim([-1, 10])
+            plt.ylabel("Entries")
+            plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        plt.show()
 
 def tensor_to_csv(x_train, y_train, subset_map, epoch_num):
     for key in subset_map:
@@ -214,8 +262,88 @@ def tensor_to_csv(x_train, y_train, subset_map, epoch_num):
         df_x.rename(columns={0: 'data', "targets": "targets"})
         df_x.to_csv(f'subsets/epoch_{epoch_num}_subset_{key + 1}.csv', index=False)
 
+def distance_X(x_train, y_train, subset_map, mode):
+    N = y_train.shape[0]
+    probs_original = map_to_prob(y_train, {0: np.array(range(60000))})[0]
 
+    probs = map_to_prob(y_train, subset_map)
 
+    stats = []
+    pvals = []
 
+    if mode == "kolmogorov-smirnov":
+        for j in range(len(probs)):
+            stat, pval = kstest(probs[j], probs_original)
+            stats.append(stat)
+            pvals.append(pval)
+    elif mode == "empirical":
+        expected_cdf = ECDF(probs_original)
+        for j in range(len(probs)):
+            observed_cdf = ECDF(probs[j])
+            stat, pval = ks_2samp(observed_cdf(probs[j]), expected_cdf(probs_original))
+            stats.append(stat)
+            pvals.append(pval)
+    elif mode == "cramer-von-mises":
+        expected_cdf = ECDF(probs_original)
+        for j in range(len(probs)):
+            observed_cdf = ECDF(probs[j])
+            stat, pval = cramervonmises(observed_cdf, expected_cdf)
+            stats.append(stat)
+            pvals.append(pval)
+    elif mode == "pearson-chi-squared":
+        for j in range(len(probs)):
+            stat, pval = chisquare(probs[j]*N, probs_original*N)
+            stats.append(stat)
+            pvals.append(pval)
+    # TODO
+    elif mode == "anderson-darling":
+        for j in range(len(probs)):
+            stat, pval = anderson_ksamp(probs[j], probs_original)
+            stats.append(stat)
+            pvals.append(pval)
+    else:
+        raise ValueError(f"Invalid mode: {mode}")
 
+    return stats, pvals
+
+def distance(y_train, subset_map, mode):
+    N = y_train.shape[0]
+    probs_original, probs = map_to_prob(y_train, {0: np.arange(60000)})[0], map_to_prob(y_train, subset_map)
+    stats, pvals = [], []
+
+    mode_dict = {
+        "kolmogorov-smirnov": lambda x: kstest(x, probs_original),
+        "empirical": lambda x: ks_2samp(ECDF(x)(x), ECDF(probs_original)(probs_original)),
+        "cramer-von-mises": lambda x: cramervonmises(ECDF(x), ECDF(probs_original)),
+        "pearson-chi-squared": lambda x: chisquare(x * N, probs_original * N),
+        "anderson-darling": anderson_ksamp
+    }
+
+    try:
+        test_func = mode_dict[mode]
+    except KeyError:
+        raise ValueError(f"Invalid mode: {mode}")
+
+    stats, pvals = zip(*[test_func(probs[j]) for j in range(len(probs))])
+
+    # for j in range(len(probs)):
+    #     stat, pval = test_func(probs[j])
+    #     stats.append(stat)
+    #     pvals.append(pval)
+
+    return stats, pvals
+
+def run_experiment(alpha_vector, path, logpath, mode, n_clients, save=False):
+    x_train, y_train, x_test, y_test = get_data(path)
+    evol_stat, evol_pval = [], []
+    for j in range(alpha_vector):
+        a_j = alpha_vector[j]
+        subset_map = partition(j, path, a_j, mode, n_clients)
+        if save:
+            tensor_to_csv(x_train, y_train, subset_map, j)
+        stats, pvals = distance(y_train, subset_map, mode)
+        mean_teststat_j = np.mean(stats)
+        mean_pval_j = np.mean(pvals)
+        evol_stat.append(mean_teststat_j)
+        evol_pval.append(mean_pval_j)
 

@@ -8,6 +8,16 @@ from sklearn.mixture import GaussianMixture
 from sklearn.model_selection import StratifiedKFold
 
 
+def get_data(path=None):
+    mnist_train: datasets = datasets.MNIST(root=path, train=True, download=True, transform=None)
+    mnist_test: datasets = datasets.MNIST(root=path, train=False, download=True, transform=None)
+
+    x_train, y_train = mnist_train.data, mnist_train.targets
+    x_test, y_test = mnist_test.data, mnist_test.targets
+
+    return x_train, y_train, x_test, y_test
+
+
 def sampleWithGaussian(inputData, mu, sig, shuffle=False):
     def calculateSelectionProbs(function, labelSpace, normalization=True):
         # Generate selection probabilities for each label according to given function
@@ -17,15 +27,6 @@ def sampleWithGaussian(inputData, mu, sig, shuffle=False):
             selectionProbs = [item * normFactor for item in selectionProbs]
         selectionCriteria = {labelSpace[i]: selectionProbs[i] for i in range(len(labelSpace))}
         return selectionCriteria
-
-    labels = list(set(y_train))
-    mu = 5
-    sig = alpha
-    proportions = [gaussian(x, mu, sig) for x in labels]
-    # normalize
-    norm_const = 1 / max(proportions)
-    proportions = [item * norm_const for item in proportions]
-    prob_map = {labels[i]: proportions[i] for i in range(len(labels))}
 
     def selectWithProbs(data, selectionCriteria):
         # Select items in dataset according to a dictionary of selection probabilities
@@ -166,7 +167,7 @@ def partition_hetero_gaussian(dir, n_clients, alpha, bootstrap=False):
             values = list(map.values())
             random.shuffle(values)
             new_map = {keys[i]: values[i] for i in range(len(keys))}
-            new_map.update({max_item:max_val})
+            new_map.update({max_item: max_val})
             return new_map
 
         prob_map = shuffle_labels(prob_map)
@@ -209,6 +210,7 @@ def save_to_csv(subset_map, epoch_num):
         subset_data['label'] = subset_labels
         subset_data.to_csv(f'subsets/epoch_{epoch_num}_subset_{key + 1}.csv', index=False)
 
+
 def tensor_to_csv(x_train, y_train, subset_map, epoch_num):
     for key in subset_map:
         x, y = x_train[subset_map.get(key)], y_train[subset_map.get(key)]
@@ -217,3 +219,43 @@ def tensor_to_csv(x_train, y_train, subset_map, epoch_num):
         df_x['targets'] = df_y
         df_x.rename(columns={0: 'data', "targets": "targets"})
         df_x.to_csv(f'subsets/epoch_{epoch_num}_subset_{key + 1}.csv', index=False)
+
+
+def partition(epoch, dir, logdir, type, n_clients, alpha, bootstrap=False, save=False):
+    x_train, y_train, x_test, y_test = get_data(dir)
+    n_train = x_train.shape[0]
+
+    subset_ID_map = {}
+
+    # Creates a partitioning where each subset has the same distribution of labels as the original dataset
+    # via stratified splitting and stores the ID's of data points in each subset in a map.
+    if type == "homo":
+        subset_ID_map = partition_homo(dir, n_clients)
+
+    # Heterogeneous partitioning by sampling from a Dirichlet process
+    # based on https://github.com/IBM/probabilistic-federated-neural-matching/blob/master/experiment.py
+    elif partition == "hetero-dir":
+       subset_ID_map = partition_hetero_dir(dir, n_clients, alpha)
+
+    elif type == "hetero-gaussian":
+        subset_ID_map = partition_hetero_gaussian(dir, n_clients, alpha)
+
+    # TODO
+    elif type == "hetero-bayesian":
+        gmm = GaussianMixture(n_components=n_clients, covariance_type='full')
+
+    return subset_ID_map
+
+def partition(dir, type, n_clients, alpha):
+    partition_funcs = {
+        "homo" : partition_homo_skf,
+        "hetero-dir": partition_hetero_dir,
+        "hetero-gaussian": partition_hetero_gaussian
+    }
+    try:
+        partition_func = partition_funcs[type]
+    except KeyError:
+        raise ValueError(f"Invalid mode: {type}")
+
+    return partition_func(dir, n_clients, alpha)
+
