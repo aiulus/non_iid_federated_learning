@@ -259,3 +259,44 @@ def partition(dir, type, n_clients, alpha):
 
     return partition_func(dir, n_clients, alpha)
 
+# previous test from .ipynb
+title_formats_part = {
+    "hetero-dir": "Mean divergence from original distribution under (increasingly) heterogeneous partitioning via Dirichlet distribution",
+    "hetero-gaussian": "Mean divergence from original distribution under (increasingly) heterogeneous partitioning via Gaussian distribution",
+    "homo": "A homogeneous partitioning with {n_clients} subsets",
+}
+
+title_formats_test = {
+    "kolmogorov-smirnov": "Test Statistic: Kolmogorov-Smirnov",
+    "empirical": "Test Statistic: Empirical Distribution",
+}
+
+alpha_vector = [1000, 500, 250, 125, 60, 30, 20, 10, 5, 1, 0.5]
+n_clients = 10
+
+evol_stat, evol_pval = [], []
+
+for j in range(len(alpha_vector)):
+    a_j = alpha_vector[j]
+    # subset_map = partition(j, path, a_j, mode, n_clients)
+    subset_map = partition("D:/", "hetero-dir", n_clients, a_j)
+    stats, pvals = distance(y_train, subset_map, "kolmogorov-smirnov")
+    mean_teststat_j = np.mean(stats)
+    mean_pval_j = np.mean(pvals)
+    evol_stat.append(mean_teststat_j)
+    evol_pval.append(mean_pval_j)
+
+main_title = title_formats.get("hetero-dir", "")
+main_title = main_title.format(n_clients=n_clients)
+addage = title_formats_test.get("kolmogorov-smirnov", "")
+main_title = main_title + '\n' + addage
+
+plt.figure(figsize=(5, 3), dpi=300)
+plt.plot(np.arange(len(evol_stat)), evol_stat)
+plt.xlabel([f'α_{j}={alpha}' for j, alpha in enumerate(alpha_vector)])
+plt.xticks(np.arange(len(evol_stat)))
+plt.suptitle(main_title)
+plt.show()
+
+plt.plot(np.arange(len(evol_pval)), evol_pval)
+plt.show()

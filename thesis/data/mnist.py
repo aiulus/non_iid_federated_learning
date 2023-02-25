@@ -10,8 +10,10 @@ from sklearn.mixture import GaussianMixture
 import pandas as pd
 from matplotlib import pyplot as plt
 import seaborn as sns
-from scipy.stats import kstest, anderson_ksamp, cumfreq, ks_2samp, cramervonmises, chisquare
+from scipy.stats import kstest, anderson_ksamp, cumfreq, ks_2samp, cramervonmises, chisquare, entropy
+from scipy.spatial.distance import jensenshannon
 from statsmodels.distributions.empirical_distribution import ECDF
+from dit.divergences import renyi_divergence, relative_entropy
 
 def get_data(path=None):
     mnist_train: datasets = datasets.MNIST(root=path, train=True, download=True, transform=None)
@@ -47,6 +49,7 @@ def log_class_counts(y_train, subset_ID_map, log=False):
 
     return cls_counts
 
+
 def map_to_prob(y_train, subset_map):
     counts = log_class_counts(y_train, subset_map)
 
@@ -54,6 +57,7 @@ def map_to_prob(y_train, subset_map):
     probs = [values[j] / values[j].sum() for j in range(len(values))]
 
     return probs
+
 
 def partition(epoch, path, alpha, mode, n_clients, logpath=None, bootstrap=False):
     x_train, y_train, x_test, y_test = get_data(path)
@@ -169,6 +173,7 @@ def partition(epoch, path, alpha, mode, n_clients, logpath=None, bootstrap=False
 
     return x_train, y_train, x_test, y_test, subset_ID_map, logpath
 
+
 # TODO: implement method for saving images
 def visualize_X(path, epoch, y_train, subset_ID_map, mode_plot, mode_partitioning, alpha, save=False):
     counts = log_class_counts(y_train, subset_ID_map)
@@ -189,7 +194,7 @@ def visualize_X(path, epoch, y_train, subset_ID_map, mode_plot, mode_partitionin
     subtitle_formats = {
         "hetero_dir": "α_{epoch}={alpha}",
         "hetero-gaussian": "σ_{epoch}={alpha}",
-        "homo" : ""
+        "homo": ""
     }
 
     subtitle = subtitle_formats.get(mode_partitioning, "")
@@ -214,27 +219,30 @@ def visualize_X(path, epoch, y_train, subset_ID_map, mode_plot, mode_partitionin
             plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
         plt.show()
 
-def visualize(X, Y, xlabels, ylabels, mode, save=False):
+
+# X: alpha-values Y: distance measures
+def visualize(X, Y, xlabels, ylabels, mode, n_clients, save=False):
     epochs = len(ylabels)
 
     title_formats = {
-        "hetero-dir": "A distribution-based heterogeneous partitioning X~Dir({alpha}) with {n_clients} subsets",
-        "hetero-gaussian": "A distribution-based Gaussian heterogeneous partitioning σ={alpha} with {n_clients} subsets",
+        "hetero-dir": "Mean divergence from original distribution under (increasingly) heterogeneous partitioning via Dirichlet distribution",
+        "hetero-gaussian": "Mean divergence from original distribution under (increasingly) heterogeneous partitioning via Gaussian distribution",
         "homo": "A homogeneous partitioning with {n_clients} subsets",
     }
     main_title = title_formats.get(mode, "")
-    main_title = main_title.format(alpha=alpha, n_clients=n_clients)
+    main_title = main_title.format(n_clients=n_clients)
 
     subtitle_formats = {
         "hetero_dir": "α_{epoch}={alpha}",
         "hetero-gaussian": "σ_{epoch}={alpha}",
-        "homo" : ""
+        "homo": ""
     }
 
     subtitle = subtitle_formats.get(mode, "")
-    subtitle = subtitle.format(epoch=epoch, alpha=alpha)
+    subtitle = subtitle.format(epoch=epochs[0], alpha=X[0])
 
     if mode_plot == "heatmap":
+        fig, axs = plt.subplots()
         ax = sns.heatmap(pd.DataFrame(values_normalized), vmin=0, vmax=1, cmap=sns.cm.rocket_r)
         ax.set(xlabel="Labels", ylabel="Clients", title=main_title)
         plt.show()
@@ -253,6 +261,7 @@ def visualize(X, Y, xlabels, ylabels, mode, save=False):
             plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
         plt.show()
 
+
 def tensor_to_csv(x_train, y_train, subset_map, epoch_num):
     for key in subset_map:
         x, y = x_train[subset_map.get(key)], y_train[subset_map.get(key)]
@@ -262,6 +271,7 @@ def tensor_to_csv(x_train, y_train, subset_map, epoch_num):
         df_x.rename(columns={0: 'data', "targets": "targets"})
         df_x.to_csv(f'subsets/epoch_{epoch_num}_subset_{key + 1}.csv', index=False)
 
+
 def distance_X(x_train, y_train, subset_map, mode):
     N = y_train.shape[0]
     probs_original = map_to_prob(y_train, {0: np.array(range(60000))})[0]
@@ -270,6 +280,15 @@ def distance_X(x_train, y_train, subset_map, mode):
 
     stats = []
     pvals = []
+
+    # same as sp.stats.entropy(p, q, base=2)
+    def kl_divergence(p, q):
+        return sum(p[i] * math.log2(p[i] / q[i]) for i in range(len(p)) if q[i] != 0 and p[i] != 0)
+
+    # Jensen-Shannon Divergence (a normalized version of the Kullback-Leibler divergence)
+    def js_divergence(p, q):
+        m = 0.5 * (p + q)
+        return 0.5 * kl_divergence(p, m) + 0.5 * kl_divergence(q, m)
 
     if mode == "kolmogorov-smirnov":
         for j in range(len(probs)):
@@ -292,7 +311,7 @@ def distance_X(x_train, y_train, subset_map, mode):
             pvals.append(pval)
     elif mode == "pearson-chi-squared":
         for j in range(len(probs)):
-            stat, pval = chisquare(probs[j]*N, probs_original*N)
+            stat, pval = chisquare(probs[j] * N, probs_original * N)
             stats.append(stat)
             pvals.append(pval)
     # TODO
@@ -305,6 +324,7 @@ def distance_X(x_train, y_train, subset_map, mode):
         raise ValueError(f"Invalid mode: {mode}")
 
     return stats, pvals
+
 
 def distance(y_train, subset_map, mode):
     N = y_train.shape[0]
@@ -333,17 +353,44 @@ def distance(y_train, subset_map, mode):
 
     return stats, pvals
 
-def run_experiment(alpha_vector, path, logpath, mode, n_clients, save=False):
+
+def run_experiment(alpha_vector, path, mode_part, mode_test, n_clients, logpath=None, save=False):
     x_train, y_train, x_test, y_test = get_data(path)
     evol_stat, evol_pval = [], []
+
     for j in range(alpha_vector):
         a_j = alpha_vector[j]
-        subset_map = partition(j, path, a_j, mode, n_clients)
+        subset_map = partition(j, path, a_j, mode_part, n_clients)
         if save:
             tensor_to_csv(x_train, y_train, subset_map, j)
-        stats, pvals = distance(y_train, subset_map, mode)
+        stats, pvals = distance(y_train, subset_map, mode_test)
         mean_teststat_j = np.mean(stats)
         mean_pval_j = np.mean(pvals)
         evol_stat.append(mean_teststat_j)
         evol_pval.append(mean_pval_j)
 
+    title_formats_part = {
+        "hetero-dir": "Mean divergence from original distribution under (increasingly) heterogeneous partitioning via Dirichlet distribution",
+        "hetero-gaussian": "Mean divergence from original distribution under (increasingly) heterogeneous partitioning via Gaussian distribution",
+        "homo": "A homogeneous partitioning with {n_clients} subsets",
+    }
+
+    title_formats_test = {
+        "kolmogorov-smirnov": "Test Statistic: Kolmogorov-Smirnov",
+        "empirical": "Test Statistic: Empirical Distribution",
+    }
+
+    def linplot(stats):
+        main_title = title_formats_part.get("hetero-dir", "")
+        main_title = main_title.format(n_clients=n_clients)
+        appendage = title_formats_test.get("kolmogorov-smirnov", "")
+        main_title = main_title + '\n' + appendage
+
+        plt.figure(figsize=(5, 3), dpi=300)
+        plt.plot(np.arange(len(stats)), stats)
+        plt.xlabel([f'α_{j}={alpha}' for j, alpha in enumerate(alpha_vector)])
+        plt.xticks(np.arange(len(stats)))
+        plt.suptitle(main_title)
+        plt.show()
+
+    linplot(evol_stat)
