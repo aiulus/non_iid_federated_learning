@@ -400,12 +400,58 @@ def run_experiment(dataset_type, alpha_vector, path, mode_part, mode_test, n_cli
 
     linplot(evol_stat)
 
+import tensorflow as tf
+from keras.datasets import cifar10
+from keras.layers import Input, Lambda
+from keras.layers.preprocessing.normalization import Normalization
+
+def euclidian_transform_X():
+    cifar_train, cifar_test = cifar10.load_data()
+    input_shape = cifar_train[0].shape[1:4]
+    inputs = Input(shape=input_shape)
+    distance = Lambda(lambda x: tf.sqrt(tf.reduce_sum(tf.square(x-0.5), axis=-1)))(inputs)
+    model = tf.keras.models.Model(inputs=inputs, outputs=distance)
+    cifar_train_data = model.predict(cifar_train[0])
+    cifar_train_targets = tf.squeeze(cifar_train[1], axis=-1)
+    cifar_train_targets = np.array(cifar_train_targets)
+    cifar_test_data = model.predict(cifar_test[0])
+    cifar_test_targets = tf.squeeze(cifar_test[1], axis=-1)
+    cifar_test_targets = np.array(cifar_test_targets)
+    return (cifar_train_data, cifar_train_targets), (cifar_test_data, cifar_test_targets)
+
+def euclidian_transform():
+    cifar_train, cifar_test = cifar10.load_data()
+    input_shape = cifar_train[0].shape[1:]
+    inputs = Input(shape=input_shape)
+    distance = Lambda(lambda x: tf.sqrt(tf.reduce_sum(tf.square(x-0.5), axis=-1)))(inputs)
+    model = tf.keras.models.Model(inputs=inputs, outputs=distance)
+    cifar_train_data = model.predict(cifar_train[0])
+    cifar_train_targets = np.squeeze(cifar_train[1], axis=-1)
+    cifar_test_data = model.predict(cifar_test[0])
+    cifar_test_targets = np.squeeze(cifar_test[1], axis=-1)
+    return (cifar_train_data, cifar_train_targets), (cifar_test_data, cifar_test_targets)
 
 
+def normalized_euclidian_transform():
+    (cifar_train_data, cifar_train_targets), (cifar_test_data, cifar_test_targets) = cifar10.load_data()
 
+    norm_layer = Normalization()
+    norm_layer.adapt(cifar_train_data)
+    cifar_train_data = norm_layer(cifar_train_data)
+    cifar_test_data = norm_layer(cifar_test_data)
 
+    input_shape = cifar_train_data.shape[1:]
+    inputs = Input(shape=input_shape)
 
+    distance = Lambda(lambda x: tf.sqrt(tf.reduce_sum(tf.square(x-0.5), axis=-1)))(inputs)
+    model = tf.keras.models.Model(inputs=inputs, outputs=distance)
 
+    cifar_train_data = model.predict(cifar_train_data)
+    cifar_train_targets = np.squeeze(cifar_train_targets, axis=-1)
+    cifar_test_data = model.predict(cifar_test_data)
+    cifar_test_targets = np.squeeze(cifar_test_targets, axis=-1)
+
+    return (cifar_train_data, cifar_train_targets), (cifar_test_data, cifar_test_targets)
 
 
 
