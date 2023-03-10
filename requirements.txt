@@ -12,3 +12,4 @@ statsmodels~=0.13.5
 dit~=1.5
 tensorflow~=2.11.0
 joblib~=1.2.0
+visualkeras~=0.0.2
